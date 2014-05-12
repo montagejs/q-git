@@ -15,7 +15,8 @@ require('js-git/mixins/formats')(repo);
 
 var gitFs;
 beforeEach(function () {
-    gitFs = new GitFs(repo, "refs/heads/master");
+    gitFs = new GitFs(repo);
+    return gitFs.load("refs/heads/master");
 });
 
 describe("readLink", function () {
@@ -61,13 +62,13 @@ describe("list", function () {
     it("lists a directory", function () {
         return gitFs.list("test/fixture")
         .then(function (list) {
-            expect(list).toEqual(["hello.txt"])
+            expect(list).toEqual(["0123456789.txt", "hello.txt"])
         })
     });
     it("lists a symbolic link to a directory", function () {
         return gitFs.list("test/fixture")
         .then(function (list) {
-            expect(list).toEqual(["hello.txt"])
+            expect(list).toEqual(["0123456789.txt", "hello.txt"])
         })
     });
     it("fails to list a non existing directory", function () {
@@ -75,7 +76,7 @@ describe("list", function () {
         .then(function () {
             expect(true).toBe(false);
         }, function (error) {
-            expect(error.message).toBe("Can't list \"test/fixture/defunct\" because Can't find \"defunct\" in \"/test/fixture\"");
+            expect(error.message).toBe("Can't list \"test/fixture/defunct\" because Can't find \"/test/fixture/defunct\"");
             expect(error.code).toBe("ENOENT");
         });
     });
@@ -141,7 +142,14 @@ describe("read", function () {
             expect(content).toBe("Hello, World!\n");
         })
     });
-    xit("reads a partial range", function () {
+    it("reads a partial range", function () {
+        return gitFs.read("/test/fixture/0123456789.txt", {
+            begin: 2,
+            end: 4
+        })
+        .then(function (content) {
+            expect(content.toString()).toBe("23");
+        })
     });
 });
 
@@ -155,7 +163,7 @@ describe("write", function () {
             ];
         })
         .spread(function (list, content) {
-            expect(list).toEqual(["bye.txt", "hello.txt"]);
+            expect(list).toEqual(["0123456789.txt", "bye.txt", "hello.txt"]);
             expect(content.toString()).toBe("Good bye, cruel World!\n");
         })
     });
@@ -170,7 +178,7 @@ describe("remove", function () {
             return gitFs.list("/test/fixture");
         })
         .then(function (list) {
-            expect(list).toEqual([]);
+            expect(list).toEqual(["0123456789.txt"]);
         })
     });
     it("fails to remove a non-existant file", function () {
@@ -178,7 +186,7 @@ describe("remove", function () {
         .then(function () {
             expect(true).toBe(false);
         }, function (error) {
-            expect(error.message).toBe("Can't remove \"test/fixture/bye.txt\" because Can't find \"bye.txt\" in \"/test/fixture\"");
+            expect(error.message).toBe("Can't remove \"test/fixture/bye.txt\" because Can't find \"/test/fixture/bye.txt\"");
             expect(error.code).toBe("ENOENT");
         })
     });
@@ -187,7 +195,7 @@ describe("remove", function () {
         .then(function () {
             expect(true).toBe(false);
         }, function (error) {
-            expect(error.message).toBe("Can't remove \"test/fixture\" because Can't remove non-file \"fixture\" in \"/test\"");
+            expect(error.message).toBe("Can't remove \"test/fixture\" because Can't remove non-file \"/test/fixture\"");
             expect(error.code).toBe("EINVAL");
         })
     });
@@ -206,7 +214,7 @@ describe("removeDirectory", function () {
             ]
         })
         .spread(function (parent, isDirectory) {
-            expect(parent).toEqual(["hello.txt"]);
+            expect(parent).toEqual(["0123456789.txt", "hello.txt"]);
             expect(isDirectory).toBe(false);
         })
     });
@@ -240,15 +248,6 @@ describe("removeDirectory", function () {
 });
 
 describe("removeTree", function () {
-    xit("removes an entire tree like a knife through butter", function () {
-        return gitFs.removeTree("/")
-        .then(function () {
-            return gitFs.list("/")
-        })
-        .then(function (list) {
-            expect(list).toEqual([]);
-        });
-    });
     it("removes a child tree", function () {
         return gitFs.removeTree("/test")
         .then(function () {
@@ -256,6 +255,15 @@ describe("removeTree", function () {
         })
         .then(function (list) {
             expect(list).not.toContain("test");
+        });
+    });
+    it("removes an entire tree like a knife through butter", function () {
+        return gitFs.removeTree("/")
+        .then(function () {
+            return gitFs.list("/")
+        })
+        .then(function (list) {
+            expect(list).toEqual([]);
         });
     });
 });
@@ -271,14 +279,68 @@ describe("makeDirectory", function () {
             ]
         })
         .spread(function (parent, child, isDirectory) {
-            expect(parent).toEqual(["directory", "hello.txt"]);
+            expect(parent).toEqual(["0123456789.txt", "directory", "hello.txt"]);
             expect(child).toEqual([]);
             expect(isDirectory).toBe(true);
         })
     });
-    xit("fails to overwrite a file", function () {
+    it("fails to overwrite a directory", function () {
+        return gitFs.makeDirectory("/test/fixture")
+        .then(function () {
+            expect(true).toBe(false);
+        }, function (error) {
+            expect(error.message).toBe("Can't make directory over existing directory at \"/test/fixture\"");
+            expect(error.code).toBe("EISDIR");
+        });
     });
-    xit("fails to overwrite a directory", function () {
+    it("fails to overwrite a file", function () {
+        return gitFs.makeDirectory("/test/fixture/hello.txt")
+        .then(function () {
+            expect(true).toBe(false);
+        }, function (error) {
+            expect(error.message).toBe("Can't make directory over existing entry at \"/test/fixture/hello.txt\"");
+            expect(error.code).toBe("EEXIST");
+        });
+    });
+    it("fails to make directory in non-existent directory", function () {
+        return gitFs.makeDirectory("test/fixture/defunct/zombie")
+        .then(function () {
+            expect(true).toBe(false);
+        }, function (error) {
+            expect(error.message).toBe("Can't make directory \"test/fixture/defunct/zombie\" because Can't find \"/test/fixture/defunct\"");
+            expect(error.code).toBe("ENOENT");
+        });
+    });
+});
+
+describe("index management", function () {
+    it("clears, saves, restores references", function () {
+        return gitFs.clear()
+        .then(function () {
+            return gitFs.commit({
+                message: "FIRST!",
+                author: {name: "Kris Kowal", email: "kris@cixar.com"}
+            })
+        })
+        .then(function () {
+            return gitFs.saveAs("TEST");
+        })
+        .then(function () {
+            return gitFs.load("refs/heads/master")
+        })
+        .then(function () {
+            return gitFs.list("test")
+        })
+        .then(function (list) {
+            expect(list).toContain("fixture");
+            return gitFs.load("TEST")
+        })
+        .then(function () {
+            return gitFs.list("");
+        })
+        .then(function (list) {
+            expect(list).toEqual([]);
+        })
     });
 });
 

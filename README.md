@@ -33,13 +33,31 @@ Then create a file system face for that repository for a particular reference,
 or for an empty repository if no reference is given.
 
 ```js
-var gitFs = new GitFs(repo, "refs/heads/master");
+var gitFs = new GitFs(repo);
+return gitFs.load(ref)
 ```
 
 The Git file system supports a very close approximation of the interface the
 [Q-IO][] file system.
 Each change to the file system constructs a new tree, including streaming writes
 to files.
+
+In addition to the file system interface, there are methods for manipulating the
+index, commiting, and updating references.
+The index tracks the current tree, last commit, and the reference the index was
+last loaded or saved from.
+All of these return promises for the file system itself.
+
+-   *load(ref)* sets the index’s reference, last commit, and current tree
+    to values obtained from the repository through the reference.
+-   *clear()* clears the index’s last known commit, reference, and tree.
+    This can be called initially to start with an empty commit log and tree.
+-   *commit({message, author: {name, email}, parents: [])* creates a commit,
+    parented in the previous commit if no parents are specified, with the given
+    message and author and the current tree, but does not save the commit to a
+    reference.
+-   *save()* writes the last commit to the last reference loaded or saved.
+-   *saveAs(ref)* writes the last commit to the given reference.
 
 ## Copyright and License
 

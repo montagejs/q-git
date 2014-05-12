@@ -4,7 +4,7 @@
 // TODO GitFs.from(fs, path), Tree.from.
 // TODO Cross-test error messages and codes against other file system
 // implementations.
-// TODO Enforce ccess control.
+// TODO Enforce access control.
 
 var Q = require("q");
 require("q-io/fs"); // To resolve the cycle
@@ -22,7 +22,7 @@ var NEW_SYMBOLIC_LINK = parseInt("120644", 8);
 var NEW_FILE = parseInt("100644", 8);
 
 module.exports = GitFs;
-function GitFs(repository, ref) {
+function GitFs(repository) {
     var self = this;
     function workingDirectory() {
         return self.workingDirectory;
@@ -30,21 +30,123 @@ function GitFs(repository, ref) {
     FsCommon.update(this, workingDirectory);
     delete this.removeTree; // Use the override
     this.repository = Repository.from(repository);
-    this.ref = ref;
-    var hash;
-    if (ref) {
-        hash = this._getCommitHashForRef(ref);
-    } else {
-        hash = this.repository.saveAs("tree", {});
-    }
-    this.tree = hash.then(function (hash) {
-        return self._makeRoot(hash);
-    });
+    this.index = Q();
 }
 
-GitFs.prototype.workingDirectory = "/";
+// The Git interface for managing the index, commiting, updating references
+
+GitFs.prototype.commit = function (commit) {
+    var self = this;
+    return self._rebase(function (index) {
+        if (!index) {
+            throw new Error("Can't commit until the index has been initialized with clear or load");
+        }
+        commit.parents = commit.parents || index.parents;
+        commit.tree = index.tree.hash;
+        return self.repository.saveAs("commit", commit)
+        .then(function (commitHash) {
+            return {
+                ref: index.ref,
+                commit: commitHash,
+                parents: [commitHash],
+                tree: index.tree
+            }
+        });
+    });
+};
+
+GitFs.prototype.load = function (ref) {
+    var self = this;
+    return self._rebase(function () {
+        return self._load(ref);
+    });
+};
+
+GitFs.prototype._load = function (ref) {
+    var self = this;
+    return self.repository.readRef(ref)
+    .then(function (commitHash) {
+        return self.repository.loadAs("commit", commitHash)
+        .then(function (commit) {
+            return self._makeRoot(commit.tree);
+        })
+        .then(function (tree) {
+            return {
+                ref: ref,
+                commit: commitHash,
+                parents: [commitHash],
+                tree: tree
+            }
+        });
+    });
+};
+
+GitFs.prototype.clear = function () {
+    var self = this;
+    return self._rebase(function () {
+        return self._clear();
+    });
+};
+
+GitFs.prototype._clear = function () {
+    var self = this;
+    return self.repository.saveAs("tree", {})
+    .then(function (treeHash) {
+        return self._makeRoot(treeHash);
+    })
+    .then(function (tree) {
+        return {
+            ref: null,
+            parents: [],
+            tree: tree
+        }
+    });
+};
+
+GitFs.prototype.save = function () {
+    var self = this;
+    return self.index.then(function (index) {
+        if (!index) {
+            throw new Error("Can't save until the index has been initialized with clear or load and commit");
+        }
+        if (!index.commit) {
+            throw new Error("Can't save until the index has been captured with commit");
+        }
+        return self.repository.updateRef(index.ref, index.commit);
+    });
+};
+
+GitFs.prototype.saveAs = function (ref) {
+    return this._rebase(function (index) {
+        return {
+            ref: ref,
+            commit: index.commit,
+            parents: index.parents,
+            tree: index.tree
+        };
+    }).invoke("save");
+};
+
+GitFs.prototype._rebase = function (callback) {
+    var self = this;
+    var oldIndex = this.index;
+    this.oldIndex = oldIndex;
+    var newIndex = oldIndex.then(callback);
+    this.index = newIndex.catch(function () {
+        // If the operation fails, the resulting promise will be an error, but
+        // the original tree will be restored so future operations are not
+        // corrupted.
+        // This makes the system transactional.
+        return oldIndex;
+    });
+    return newIndex.then(function () {
+        return self;
+    });
+};
 
 // Public interface
+
+GitFs.prototype.workingDirectory = "/";
 
 GitFs.prototype.open = function (path, flags, charset, options) {
     var self = this;
@@ -93,14 +195,14 @@ GitFs.prototype.remove = function (path) {
     return self._transact(function (root) {
         return self._walkBack(root, directory, function (directory) {
             var entry = directory.entriesByName[name];
+            var path = self.join(directory.path, name);
             if (!entry) {
-                var error = new Error("Can't find " + JSON.stringify(name) + " in " + JSON.stringify(directory.path));
+                var error = new Error("Can't find " + JSON.stringify(path));
                 error.code = "ENOENT";
                 throw error;
             }
             if (!entry.isFile()) {
-                var error = new Error("Can't remove non-file " + JSON.stringify(name) + " in " + JSON.stringify(directory.path));
-                // TODO check code
+                var error = new Error("Can't remove non-file " + JSON.stringify(path));
                 error.code = "EINVAL";
                 throw error;
             }
@@ -109,8 +211,9 @@ GitFs.prototype.remove = function (path) {
         .catch(function (cause) {
             var error = new Error("Can't remove " + JSON.stringify(path) + " because " + cause.message);
             error.code = cause.code;
+            error.cause = cause;
             throw error;
-        })
+        });
     });
 };
 
@@ -155,13 +258,20 @@ GitFs.prototype.removeDirectory = function (path) {
 
 GitFs.prototype.removeTree = function (path) {
     var self = this;
+    path = this.absolute(path);
     var directory = this.directory(path);
     var name = this.base(path);
-    return self._transact(function (root) {
-        return self._walkBack(root, directory, function (directory) {
-            delete directory.entriesByName[name];
+    if (directory === "/" && name === "") {
+        return self._transact(function (root) {
+            return self.repository.saveAs("tree", {});
         });
-    });
+    } else {
+        return self._transact(function (root) {
+            return self._walkBack(root, directory, function (directory) {
+                delete directory.entriesByName[name];
+            });
+        });
+    }
 };
 
 GitFs.prototype.rename = function (source, target) {
@@ -179,17 +289,50 @@ GitFs.prototype.makeDirectory = function (path, mode) {
     }
     var self = this;
     var directory = this.directory(path);
-    var base = this.base(path);
+    var name = this.base(path);
     return self._transact(function (root) {
         return self.repository.saveAs("tree", {})
         .then(function (hash) {
             return self._walkBack(root, directory, function (directory) {
-                directory.entriesByName[base] = new Entry({
-                    name: base,
+                var entry = directory.entriesByName[name];
+                var path = self.join(directory.path, name);
+                if (entry) {
+                    var error;
+                    if (entry.isDirectory()) {
+                        error = new Error(
+                            "Can't make directory over existing directory at " +
+                            JSON.stringify(path)
+                        );
+                        error.code = "EISDIR";
+                        error.exists = true;
+                        error.isDirectory = false;
+                    } else {
+                        error = new Error(
+                            "Can't make directory over existing entry at " +
+                            JSON.stringify(path)
+                        );
+                        error.code = "EEXIST";
+                        error.exists = true;
+                        error.isDirectory = false;
+                    }
+                    throw error;
+                }
+                directory.entriesByName[name] = new Entry({
+                    name: name,
                     hash: hash,
                     mode: (mode & NEW_MASK) | (NEW_DIRECTORY & ~NEW_MASK)
                 });
             });
+        })
+        .catch(function (cause) {
+            if (cause.exists) {
+                throw cause;
+            } else {
+                var error = new Error("Can't make directory " + JSON.stringify(path) + " because " + cause.message);
+                error.code = cause.code;
+                error.cause = cause;
+                throw error;
+            }
         });
     });
 };
@@ -201,6 +344,7 @@ GitFs.prototype.list = function (path) {
         if (cause.code !== "ENOTDIR") {
             var error = new Error("Can't list " + JSON.stringify(path) + " because " + cause.message);
             error.code = cause.code;
+            error.cause = cause;
             throw error;
         } else {
             throw cause;
@@ -224,13 +368,13 @@ GitFs.prototype.symbolicLink = function (target, relative, type) {
     // TODO test
     var self = this;
     var directory = this.directory(path);
-    var base = this.base(path);
+    var name = this.base(path);
     return self._transact(function (root) {
         return self.repository.saveAs("blob", new Buffer(relative, "utf-8"))
         .then(function (hash) {
             return self._walkBack(root, directory, function (directory) {
-                directory.entriesByName[base] = new Entry({
-                    name: base,
+                directory.entriesByName[name] = new Entry({
+                    name: name,
                     hash: hash,
                     mode: modes.sym
                 });
@@ -249,12 +393,12 @@ GitFs.prototype.chmod = function (path, mode) {
     // TODO test
     var self = this;
     var directory = this.directory(path);
-    var base = this.base(path);
+    var name = this.base(path);
     return self._transact(function (root) {
         return self._walkBack(root, directory, function (directory) {
-            var oldMode = directory.entriesByName[base].mode;
+            var oldMode = directory.entriesByName[name].mode;
             mode = (oldMode & MASK) | (mode & ~MASK);
-            directory.entriesByName[base].mode = mode;
+            directory.entriesByName[name].mode = mode;
         });
     });
 };
@@ -287,20 +431,6 @@ GitFs.prototype.readLink = function (path) {
 
 // Implementation details particular to Git
 
-GitFs.prototype._getCommitHashForRef = function (ref) {
-    var self = this;
-    return Q()
-    .then(function () {
-        return self.repository.readRef(ref);
-    })
-    .then(function (hash) {
-        return self.repository.loadAs("commit", hash);
-    })
-    .then(function (commit) {
-        return commit.tree;
-    });
-};
-
 GitFs.prototype._makeRoot = function (hash) {
     var self = this;
     return new Tree(
@@ -321,55 +451,56 @@ GitFs.prototype._walk = function (path, callback) {
     var self = this;
     var parts = this.split(path);
     // Ignore the "" in parts[0] (no drives on this file system)
-    return this.tree.invoke("_walk", parts, 1, callback);
+    return this.index.get("tree").invoke("_walk", parts, 1, callback);
 };
 
 GitFs.prototype._walkBack = function (root, path, callback) {
     var self = this;
     // Get canonical path from current root
-    // Can't use this.canonical because of data-lock on the new this.tree
+    // Can't use this.canonical because of data-lock on the new index
     var parts = this.split(this.absolute(path));
-    return root.invoke("_walk", parts, 1, stopWalk)
+    return root._walk(parts, 1, stopWalk)
     .invoke("_follow")
     .then(function (node) {
         var parts = self.split(node.path);
         // Ignore the "" in parts[0] (no drives on this file system)
-        return root.invoke("_walkBack", parts, 1, callback);
+        return root._walkBack(parts, 1, callback);
     });
 };
 
 function stopWalk(node, parts, index) {
     if (index !== parts.length) {
-        var error = new Error(
-            "Can't find " + JSON.stringify(parts[index]) +
-            " in " + JSON.stringify(node.path)
-        );
+        var path = node.fs.join(node.path, parts[index]);
+        var error = new Error("Can't find " + JSON.stringify(path));
         error.code = "ENOENT";
         throw error;
     } else {
-        return node;
+        return Q(node);
     }
 }
 
 GitFs.prototype._read = function (path) {
     return this.stat(path).invoke("_read")
-    .catch(function (error) {
+    .catch(function (cause) {
+        var error =  new Error("Can't read " + JSON.stringify(path) + " because " + cause.message);
+        error.code = cause.code;
+        error.cause = cause;
         throw error;
-        throw new Error("Can't read " + JSON.stringify(path) + " because " + error.message);
     });
 };
 
 GitFs.prototype._write = function (path, content, mode) {
     var self = this;
     var directory = this.directory(path);
-    var base = this.base(path);
+    var name = this.base(path);
     mode = mode || NEW_FILE;
     return self._transact(function (root) {
         return self.repository.saveAs("blob", content)
         .then(function (hash) {
             return self._walkBack(root, directory, function (directory) {
-                directory.entriesByName[base] = {
-                    name: base,
+                var entry = directory.entriesByName[name];
+                directory.entriesByName[name] = {
+                    name: name,
                     hash: hash,
                     mode: (mode & NEW_MASK) | (NEW_FILE & ~NEW_MASK)
                 };
@@ -378,21 +509,19 @@ GitFs.prototype._write = function (path, content, mode) {
     });
 };
 
-GitFs.prototype._transact = function (callback, thisp) {
+GitFs.prototype._transact = function (callback) {
     var self = this;
-    var oldTree = this.tree;
-    this.oldTree = this.tree;
-    var newTree = callback(oldTree).then(function (hash) {
-        return self._makeRoot(hash);
-    });
-    this.tree = newTree.catch(function () {
-        // If the operation fails, the resulting promise will be an error, but
-        // the original tree will be restored so future operations are not
-        // corrupted.
-        // This makes the system transactional.
-        return oldTree;
-    });
-    return newTree.then(function () {
+    return self._rebase(function (index) {
+        return callback(index.tree).then(function (treeHash) {
+            return self._makeRoot(treeHash);
+        }).then(function (tree) {
+            return {
+                ref: index.ref,
+                commit: index.commit,
+                parents: index.parents,
+                tree: tree
+            }
+        });
     });
 };
 
@@ -555,12 +684,13 @@ Tree.prototype._get = function (name) {
 
 Tree.prototype._getTree = function (name) {
     var entry = this.entriesByName[name];
+    var path = this.fs.join(this.path, name);
     if (!entry) {
-        var error = new Error("Can't find " + JSON.stringify(name) + " in " + this.path);
+        var error = new Error("Can't find " + JSON.stringify(path));
         error.code = "ENOENT";
         throw error;
     } else if (!entry.isDirectory()) {
-        var error = new Error("Can't open non-directory " + JSON.stringify(name) + " in " + this.path);
+        var error = new Error("Can't open non-directory " + JSON.stringify(path));
         error.code = "ENOTDIR";
         throw error;
     }
