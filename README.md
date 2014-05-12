@@ -29,12 +29,15 @@ require('js-git/mixins/read-combiner')(repo);
 require('js-git/mixins/formats')(repo);
 ```
 
-Then create a file system face for that repository for a particular reference,
-or for an empty repository if no reference is given.
+Then create a file system face for that repository.
+From there, you must either load a reference from the repository, or create an
+orphan branch by clearing the index.
 
 ```js
 var gitFs = new GitFs(repo);
-return gitFs.load(ref)
+return gitFs.load(ref);
+// or...
+return gitFs.clear();
 ```
 
 The Git file system supports a very close approximation of the interface the
