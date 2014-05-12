@@ -1,0 +1,34 @@
+{
+  "name": "q-git",
+  "version": "0.0.0",
+  "description": "Interface with a JS-Git repository as a Q-IO compatible file system",
+  "keywords": [
+    "q",
+    "q-io",
+    "git",
+    "js-git"
+  ],
+  "author": "Kris Kowal <kris@cixar.com>",
+  "license": "BS3 3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/montagejs/q-git.git"
+  },
+  "bugs": {
+    "url": "https://github.com/montagejs/q-git/issues"
+  },
+  "main": "fs.js",
+  "dependencies": {
+    "js-git": "git://github.com/creationix/js-git.git",
+    "q": ">=1.0.1 <2.0.0",
+    "q-io": ">=1.11.0 <2.0.0",
+    "collections": ">=1.1.0 <2.0.0"
+  },
+  "devDependencies": {
+    "git-node-fs": "git://github.com/creationix/git-node-fs.git#b0d193b6ead8dc57d1febe7ff72ca57fa4407a98",
+    "jasminum": ">=0.0.4 <0.1.0"
+  },
+  "scripts": {
+    "test": "jasminum test"
+  }
+}
