@@ -2,6 +2,7 @@
 var Q = require("q");
 var GitFs = require("../fs");
 var fs = require("q-io/fs");
+
 Q.longStackSupport = true;
 
 var repo = {};
@@ -167,7 +168,14 @@ describe("write", function () {
             expect(content.toString()).toBe("Good bye, cruel World!\n");
         })
     });
-    xit("fails to overwrite a directory", function () {
+    it("fails to overwrite a directory", function () {
+        return gitFs.write("test/fixture", "Good bye, cruel World!\n")
+        .then(function () {
+            expect(true).toBe(false);
+        }, function (error) {
+            expect(error.message).toBe("Can't over-write directory \"/test/fixture\"");
+            expect(error.code).toBe("EISDIR");
+        })
     });
 });
 

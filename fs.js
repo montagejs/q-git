@@ -499,6 +499,12 @@ GitFs.prototype._write = function (path, content, mode) {
         .then(function (hash) {
             return self._walkBack(root, directory, function (directory) {
                 var entry = directory.entriesByName[name];
+                if (entry && entry.isDirectory()) {
+                    path = self.join(directory.path, name);
+                    var error = new Error("Can't over-write directory " + JSON.stringify(path));
+                    error.code = "EISDIR";
+                    throw error;
+                }
                 directory.entriesByName[name] = {
                     name: name,
                     hash: hash,
