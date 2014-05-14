@@ -25,7 +25,7 @@
     "collections": ">=1.1.0 <2.0.0"
   },
   "devDependencies": {
-    "git-node-fs": "git://github.com/creationix/git-node-fs.git#b0d193b6ead8dc57d1febe7ff72ca57fa4407a98",
+    "git-node-fs": "git://github.com/creationix/git-node-fs.git",
     "jasminum": ">=0.0.4 <0.1.0"
   },
   "scripts": {
