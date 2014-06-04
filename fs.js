@@ -445,6 +445,11 @@ GitFs.prototype._makeRoot = function (hash) {
     )._load();
 };
 
+// Traverses from the root to the leaf, opening each tree node along the way to
+// find the hash of the next branch. Calls the callback with the leaf node,
+// with the remaining path components and the index of the leaf path component.
+// The default callback expects the traversal to consume all of the path and
+// returns the leaf node, but throws an error if there are any remaining parts.
 GitFs.prototype._walk = function (path, callback) {
     callback = callback || stopWalk;
     path = this.absolute(path);
@@ -454,6 +459,8 @@ GitFs.prototype._walk = function (path, callback) {
     return this.index.get("tree").invoke("_walk", parts, 1, callback);
 };
 
+// Like _walk, except that it saves changes to each node of the tree on the way
+// back from leaf to root.
 GitFs.prototype._walkBack = function (root, path, callback) {
     var self = this;
     // Get canonical path from current root
