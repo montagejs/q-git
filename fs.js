@@ -8,6 +8,7 @@
 
 var Q = require("q");
 var FsCommon = require("q-io/fs-common");
+var Readable = require("q-io/readable");
 var Repository = require("./repository");
 
 var MASK = parseInt("060000", 8);
@@ -15,8 +16,10 @@ var DIRECTORY = parseInt("040000", 8);
 var SYMBOLIC_LINK = parseInt("020000", 8);
 var FILE = 0;
 
+var TREE = parseInt("40000", 8);
+var SYMBOLIC_LINK = parseInt("120000", 8);
+
 var NEW_MASK = parseInt("000777", 8);
-var NEW_DIRECTORY = parseInt("140755", 8);
 var NEW_SYMBOLIC_LINK = parseInt("120644", 8);
 var NEW_FILE = parseInt("100644", 8);
 
@@ -287,11 +290,8 @@ GitFs.prototype.rename = function (source, target) {
     });
 };
 
-GitFs.prototype.makeDirectory = function (path, mode) {
+GitFs.prototype.makeDirectory = function (path) {
     // TODO check for existing file
-    if (mode === undefined) {
-        mode = NEW_DIRECTORY;
-    }
     var self = this;
     var directory = this.directory(path);
     var name = this.base(path);
@@ -325,7 +325,7 @@ GitFs.prototype.makeDirectory = function (path, mode) {
                 directory.entriesByName[name] = new Entry({
                     name: name,
                     hash: hash,
-                    mode: (mode & NEW_MASK) | (NEW_DIRECTORY & ~NEW_MASK)
+                    mode: TREE
                 });
             });
         })
@@ -381,7 +381,7 @@ GitFs.prototype.symbolicLink = function (target, relative, type) {
                 directory.entriesByName[name] = new Entry({
                     name: name,
                     hash: hash,
-                    mode: modes.sym
+                    mode: SYMBOLIC_LINK
                 });
             });
         });
@@ -431,7 +431,7 @@ GitFs.prototype._makeRoot = function (hash) {
         "/",
         {
             name: "",
-            mode: NEW_DIRECTORY,
+            mode: TREE,
             hash: hash
         }
     )._load();
@@ -758,7 +758,7 @@ function Writer(fs, path, content, mode, charset) {
     this._content = content || new Buffer();
 }
 
-Writer.prototype.write = function (chunk) {
+Writer.prototype.yield = function (chunk) {
     if (this._charset) {
         chunk = new Buffer(chunk, this._charset);
     }
@@ -766,7 +766,11 @@ Writer.prototype.write = function (chunk) {
     return this._fs._write(this._path, this._content, this._mode);
 };
 
-Writer.prototype.close = function () {
+Writer.prototype.throw = function (error) {
+    return Q();
+};
+
+Writer.prototype.return = function () {
     return Q();
 };
 
@@ -776,6 +780,8 @@ function Reader(content, charset) {
     }
     this._content = content;
 }
+
+Reader.prototype = Object.create(Readable.prototype);
 
 Reader.prototype.forEach = function (write, thisp) {
     var self = this;
