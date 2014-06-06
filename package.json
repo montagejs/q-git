@@ -1,6 +1,9 @@
 {
   "name": "q-git",
   "version": "0.0.0",
+  "publishConfig": {
+    "tag": "future"
+  },
   "description": "Interface with a JS-Git repository as a Q-IO compatible file system",
   "keywords": [
     "q",
@@ -20,13 +23,13 @@
   "main": "fs.js",
   "dependencies": {
     "js-git": "git://github.com/creationix/js-git.git",
-    "q": ">=1.0.1 <2.0.0",
-    "q-io": ">=1.11.0 <2.0.0",
-    "collections": ">=1.1.0 <2.0.0"
+    "q": "^2.0.2",
+    "q-io": "^2.0.4",
+    "collections": "^2.0.1"
   },
   "devDependencies": {
     "git-node-fs": "git://github.com/creationix/git-node-fs.git",
-    "jasminum": ">=0.0.4 <0.1.0"
+    "jasminum": "^2.0.5"
   },
   "scripts": {
     "test": "jasminum test"

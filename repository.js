@@ -42,25 +42,13 @@ Repository.prototype.loadAs = function (type, hash) {
     var deferred = Q.defer();
     // The arrity of the loadAs callback does not play well with
     // makeNodeResolver.
-    this.repository.loadAs(type, hash, function (error, hash) {
-        if (error) {
-            deferred.reject(error);
-        } else {
-            deferred.resolve(hash);
-        }
-    });
+    this.repository.loadAs(type, hash, deferred.makeNodeResolver());
     return deferred.promise;
 };
 
 Repository.prototype.saveAs = function (type, content) {
     var deferred = Q.defer();
-    this.repository.saveAs(type, content, function (error, hash) {
-        if (error) {
-            deferred.reject(error);
-        } else {
-            deferred.resolve(hash);
-        }
-    });
+    this.repository.saveAs(type, content, deferred.makeNodeResolver());
     return deferred.promise;
 };
 

@@ -7,7 +7,6 @@
 // TODO Enforce access control.
 
 var Q = require("q");
-require("q-io/fs"); // To resolve the cycle
 var FsCommon = require("q-io/fs-common");
 var Repository = require("./repository");
 
@@ -24,14 +23,18 @@ var NEW_FILE = parseInt("100644", 8);
 module.exports = GitFs;
 function GitFs(repository) {
     var self = this;
-    function workingDirectory() {
-        return self.workingDirectory;
-    }
-    FsCommon.update(this, workingDirectory);
     delete this.removeTree; // Use the override
     this.repository = Repository.from(repository);
     this.index = Q();
 }
+
+GitFs.prototype = Object.create(FsCommon.prototype);
+
+GitFs.prototype.root = "/";
+GitFs.prototype.separator = "/";
+GitFs.prototype.separatorsExpression = /\//g;
+
+GitFs.prototype.constructor = GitFs;
 
 // The Git interface for managing the index, commiting, updating references
 
@@ -146,7 +149,9 @@ GitFs.prototype._rebase = function (callback) {
 
 // Public interface
 
-GitFs.prototype.workingDirectory = "/";
+GitFs.prototype.workingDirectory = function () {
+    return this.root;
+};
 
 GitFs.prototype.open = function (path, flags, charset, options) {
     var self = this;
@@ -169,20 +174,20 @@ GitFs.prototype.open = function (path, flags, charset, options) {
     var mode = options.mode;
 
     if (write) {
-        return new Writer(this, path, new Buffer([]), mode, charset);
+        return Q(new Writer(this, path, new Buffer([]), mode, charset));
     } else if (append) {
         return this._read(path).then(function (content) {
-            return new Writer(self, path, content, mode, charset);
+            return Q(new Writer(self, path, content, mode, charset));
         });
     } else { // read
         return this._read(path).then(function (content) {
             if ("begin" in options && "end" in options) {
-                return new Reader(
+                return Q(new Reader(
                     content.slice(options.begin, options.end),
                     charset
-                );
+                ));
             } else {
-                return new Reader(content, charset);
+                return Q(new Reader(content, charset));
             }
         });
     }
@@ -399,19 +404,6 @@ GitFs.prototype.chmod = function (path, mode) {
             var oldMode = directory.entriesByName[name].mode;
             mode = (oldMode & MASK) | (mode & ~MASK);
             directory.entriesByName[name].mode = mode;
-        });
-    });
-};
-
-GitFs.prototype.canonical = function (path) {
-    var self = this;
-    return self._walk(path, function (node, parts, index) {
-        return node._follow().then(function (node) {
-            if (index !== parts.length) {
-                return self.join(node.path, self.join(parts.slice(index)));
-            } else {
-                return node.path;
-            }
         });
     });
 };
