@@ -24,7 +24,7 @@
   "dependencies": {
     "js-git": "git://github.com/creationix/js-git.git",
     "q": "^2.0.2",
-    "q-io": "^2.0.4",
+    "q-io": "^2.0.6",
     "collections": "^2.0.1"
   },
   "devDependencies": {

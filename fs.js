@@ -16,11 +16,9 @@ var DIRECTORY = parseInt("040000", 8);
 var SYMBOLIC_LINK = parseInt("020000", 8);
 var FILE = 0;
 
-var TREE = parseInt("40000", 8);
-var SYMBOLIC_LINK = parseInt("120000", 8);
-
+var NEW_TREE = parseInt("40000", 8);
+var NEW_SYMBOLIC_LINK = parseInt("120000", 8);
 var NEW_MASK = parseInt("000777", 8);
-var NEW_SYMBOLIC_LINK = parseInt("120644", 8);
 var NEW_FILE = parseInt("100644", 8);
 
 module.exports = GitFs;
@@ -325,7 +323,7 @@ GitFs.prototype.makeDirectory = function (path) {
                 directory.entriesByName[name] = new Entry({
                     name: name,
                     hash: hash,
-                    mode: TREE
+                    mode: NEW_TREE
                 });
             });
         })
@@ -381,7 +379,7 @@ GitFs.prototype.symbolicLink = function (target, relative, type) {
                 directory.entriesByName[name] = new Entry({
                     name: name,
                     hash: hash,
-                    mode: SYMBOLIC_LINK
+                    mode: NEW_SYMBOLIC_LINK
                 });
             });
         });
@@ -431,7 +429,7 @@ GitFs.prototype._makeRoot = function (hash) {
         "/",
         {
             name: "",
-            mode: TREE,
+            mode: NEW_TREE,
             hash: hash
         }
     )._load();
